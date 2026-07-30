@@ -117,13 +117,13 @@ public class GrpcClientSettingsManager extends ServiceThread implements StartAnd
         final Metric.Builder metricBuilder = Metric.newBuilder();
         switch (metricCollectorMode) {
             case ON:
-                final String[] split = metricCollectorAddress.split(":");
-                final String host = split[0];
-                final int port = Integer.parseInt(split[1]);
-                Address address = Address.newBuilder().setHost(host).setPort(port).build();
-                final Endpoints endpoints = Endpoints.newBuilder().setScheme(AddressScheme.IPv4)
-                    .addAddresses(address).build();
-                metricBuilder.setOn(true).setEndpoints(endpoints);
+                Endpoints endpoints = parseMetricCollectorEndpoints(metricCollectorAddress);
+                if (endpoints == null) {
+                    log.warn("Ignore malformed metricCollectorAddress: {}", metricCollectorAddress);
+                    metricBuilder.setOn(false);
+                } else {
+                    metricBuilder.setOn(true).setEndpoints(endpoints);
+                }
                 break;
             case PROXY:
                 metricBuilder.setOn(true).setEndpoints(settings.getAccessPoint());
@@ -135,6 +135,34 @@ public class GrpcClientSettingsManager extends ServiceThread implements StartAnd
         }
         Metric metric = metricBuilder.build();
         return settings.toBuilder().setMetric(metric).build();
+    }
+
+    private Endpoints parseMetricCollectorEndpoints(String metricCollectorAddress) {
+        if (metricCollectorAddress == null) {
+            return null;
+        }
+
+        int splitIndex = metricCollectorAddress.indexOf(":");
+        if (splitIndex <= 0 || splitIndex != metricCollectorAddress.lastIndexOf(":")
+            || splitIndex == metricCollectorAddress.length() - 1) {
+            return null;
+        }
+
+        String host = metricCollectorAddress.substring(0, splitIndex);
+        String portValue = metricCollectorAddress.substring(splitIndex + 1);
+        int port;
+        try {
+            port = Integer.parseInt(portValue);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+        if (port < 0 || port > 65535) {
+            return null;
+        }
+
+        Address address = Address.newBuilder().setHost(host).setPort(port).build();
+        return Endpoints.newBuilder().setScheme(AddressScheme.IPv4)
+            .addAddresses(address).build();
     }
 
     protected static Settings mergeSubscriptionData(Settings settings, SubscriptionGroupConfig groupConfig) {
